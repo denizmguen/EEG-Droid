@@ -160,6 +160,8 @@ public class Record extends AppCompatActivity {
     private View layout_plots;
     private boolean plotting = false;
     private List<float[]> main_data;
+    private int adaptiveEncodingFlag = 0; //Indicates whether adaptive encoding took place in this instant.
+    private final ArrayList<Integer> adaptiveEncodingFlags = new ArrayList<>();
     private final View.OnClickListener imageDiscardOnClickListener = new View.OnClickListener() {
         @Override
         public void onClick(View v) {
@@ -283,11 +285,12 @@ public class Record extends AppCompatActivity {
                 discoverCharacteristics(mBluetoothLeService.getSupportedGattServices());
             } else if (BluetoothLeService.ACTION_DATA_AVAILABLE.equals(action) && deviceConnected) {
                 int[] data = intent.getIntArrayExtra(BluetoothLeService.EXTRA_DATA);
-                if (data[0] == 10000){
-                    String bitshiftch1 = Integer.toString(TraumschreiberService.signalBitShift[0]);
+                if (data[0] == 10000) { // 10000 indicates no Data but adaptive Encoding
+                    adaptiveEncodingFlag = 1;
+                    /*String bitshiftch1 = Integer.toString(TraumschreiberService.signalBitShift[0]);
                     Toast.makeText(getApplicationContext(),
                             "Adaptive Encoding, Ch1 shifted by " + bitshiftch1 + "bits",
-                            Toast.LENGTH_LONG).show();
+                            Toast.LENGTH_LONG).show();*/
                     return;
                 }
                 data_cnt++;
@@ -435,7 +438,7 @@ public class Record extends AppCompatActivity {
         try {
             streamOutlet = new LSL.StreamOutlet(streamInfo);
         } catch (IOException ex) {
-            Log.d("LSL issue:", Objects.requireNonNull(ex.getMessage()));
+            Log.v("LSL issue:", Objects.requireNonNull(ex.getMessage()));
             return;
         }
 
@@ -573,7 +576,7 @@ public class Record extends AppCompatActivity {
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         // Inflate the menu; this adds items to the action bar if it is present.
-        getMenuInflater().inflate(R.menu.bluethoot_conect, menu);
+        getMenuInflater().inflate(R.menu.bluetooth_connect, menu);
         this.menu = menu;
         return true;
     }
@@ -636,6 +639,13 @@ public class Record extends AppCompatActivity {
                 caster.staph();
                 menuItemCast.setIcon(R.drawable.ic_cast_white_24dp);
             }
+        }
+
+        if (id==R.id.centering) {
+            Toast.makeText(getApplicationContext(),
+                    "Centering Signal around 0..",
+                    Toast.LENGTH_LONG).show();
+            TraumschreiberService.initCentering();
         }
         return super.onOptionsItemSelected(item);
     }
@@ -745,8 +755,8 @@ public class Record extends AppCompatActivity {
 
     private List<Float> transData(int[] data) {
         // Conversion formula (old): V_in = X * 1.65V / (1000 * GAIN * PRECISION)
-        // Conversion formula (new): V_in = X * (298 / (1000 * gain))
-        float gain = Float.parseFloat(selectedGain);
+        // Conversion formula (new): V_in = X * (298 / (10^9 * gain))
+        float gain = Float.parseFloat(selectedGain); // 1 by default
         List<Float> data_trans = new ArrayList<>();
         if (!mNewDevice) { // old model
             pkgIDs.add((int) data_cnt); // store pkg ID
@@ -755,7 +765,7 @@ public class Record extends AppCompatActivity {
             float denominator = gain * precision;
             for (int datapoint : data) data_trans.add((datapoint * numerator) / denominator);
         } else {
-            for (float datapoint : data) data_trans.add(datapoint * 298 / (10 ^ 6) / gain);
+            for (float datapoint : data) data_trans.add(datapoint * 298 / 1000000 / gain);
         }
         return data_trans;
     }
@@ -1003,6 +1013,8 @@ public class Record extends AppCompatActivity {
         for (Float f : data_microV)
             f_microV[i++] = (f != null ? f : Float.NaN); // Or whatever default you want
         main_data.add(f_microV);
+        adaptiveEncodingFlags.add(adaptiveEncodingFlag);
+        adaptiveEncodingFlag = 0;
     }
 
     private void saveSession() {
@@ -1026,8 +1038,10 @@ public class Record extends AppCompatActivity {
         int rows = main_data.size();
         int cols = main_data.get(0).length;
         final StringBuilder header = new StringBuilder();
-        for (int i = 1; i < cols; i++) header.append(String.format("Ch-%d,", i));
-        header.append(String.format("Ch-%d", cols));
+        for (int i = 1; i <= cols; i++) header.append(String.format("Ch-%d,", i));
+        header.append("Bitshift-Ch1,Bitshift-Ch2,Bitshift-Ch3,Bitshift-Ch4,Bitshift-Ch5,Bitshift-Ch6,");
+        header.append("Bitshift-Notification");
+        //header.append(String.format("Ch-%d", cols));
         new Thread(() -> {
             try {
                 File formatted = new File(MainActivity.getDirSessions(),
@@ -1080,6 +1094,11 @@ public class Record extends AppCompatActivity {
                         fileWriter.append(String.valueOf(main_data.get(i)[j]));
                         fileWriter.append(delimiter);
                     }
+                    for(int j=0; j<6;j++) {
+                        fileWriter.append(String.valueOf(TraumschreiberService.signalBitShift[j]));
+                        fileWriter.append(delimiter);
+                    }
+                    fileWriter.append(String.valueOf(adaptiveEncodingFlags.get(i)));
                     fileWriter.append(break_line);
                 }
                 fileWriter.flush();
@@ -1129,6 +1148,8 @@ public class Record extends AppCompatActivity {
         MenuItem menuItem = menu.findItem(R.id.scan);
         MenuItem menuItemNotify = menu.findItem(R.id.notify);
         MenuItem menuItemCast = menu.findItem(R.id.cast);
+        MenuItem menuItemCentering = menu.findItem(R.id.centering);
+
         if (connected) {
             menuItem.setIcon(R.drawable.ic_bluetooth_connected_blue_24dp);
             mConnectionState.setText(R.string.device_connected);
@@ -1138,6 +1159,7 @@ public class Record extends AppCompatActivity {
             viewDeviceAddress.setText(mDeviceAddress);
             menuItemNotify.setVisible(true);
             menuItemCast.setVisible(true);
+            menuItemCentering.setVisible(true);
         } else {
             menuItem.setIcon(R.drawable.ic_bluetooth_searching_white_24dp);
             mConnectionState.setText(R.string.no_device);
@@ -1148,6 +1170,7 @@ public class Record extends AppCompatActivity {
             viewDeviceAddress.setText(R.string.no_address);
             menuItemNotify.setVisible(false);
             menuItemCast.setVisible(false);
+            menuItemCentering.setVisible(false);
         }
     }
 

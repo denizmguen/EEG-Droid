@@ -3,10 +3,12 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     tools:context="de.uni_osnabrueck.ikw.eegdroid">
+
     <item
-        android:id="@+id/scan"
-        android:icon="@drawable/ic_bluetooth_searching_white_24dp"
-        android:title="@string/menu_scan"
+        android:id="@+id/centering"
+        android:icon="@drawable/ic_baseline_align_vertical_center_24"
+        android:title="Centering"
+        android:visible="false"
         app:showAsAction="ifRoom" />
 
     <item
@@ -23,5 +25,10 @@
         android:visible="false"
         app:showAsAction="ifRoom" />
 
+    <item
+        android:id="@+id/scan"
+        android:icon="@drawable/ic_bluetooth_searching_white_24dp"
+        android:title="@string/menu_scan"
+        app:showAsAction="ifRoom" />
 
 </menu>

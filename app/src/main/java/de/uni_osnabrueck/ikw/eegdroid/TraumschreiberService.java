@@ -39,7 +39,8 @@ public class TraumschreiberService {
     private final int[] decodedSignal = new int[24];
     public static int[] signalBitShift = new int[24];
     private static int[] signalOffset = new int[24];
-    private int pkgCount;
+    private static int pkgCount;
+    private boolean zeroCenterFlag = true;
     private boolean characteristic0Ready = false;
 
 
@@ -64,6 +65,10 @@ public class TraumschreiberService {
         signalBitShift = newShift;
     }
 
+    public static void initCentering(){
+        signalOffset = new int[24];
+        pkgCount = 0;
+    }
     /***
      * decompress takes a bytearray dataBytes and converts it to integers, according to the way the Traumschreiber transmits the data via bluetooth
      * @param dataBytes
@@ -113,18 +118,21 @@ public class TraumschreiberService {
             if (characteristicId.equals("0")) {
                 System.arraycopy(dataBytes, 0, dpcmBuffer, 0, 20);
                 characteristic0Ready = true;
-                data_ints = null;
-                return data_ints;
+                return null;
 
             } else if (characteristic0Ready && characteristicId.equals("1")) {
                 System.arraycopy(dataBytes, 0, dpcmBuffer, 20, 10);
                 System.arraycopy(dataBytes, 10, dpcmBuffer2, 0, 10);
-                data_ints = decodeDpcm(dpcmBuffer);
+                decodeDpcm(dpcmBuffer);
+                handleCentering();
+                return decodedSignal;
 
             } else if (characteristic0Ready && characteristicId.equals("2")) {
                 System.arraycopy(dataBytes, 0, dpcmBuffer2, 10, 20);
-                data_ints = decodeDpcm(dpcmBuffer2);
+                decodeDpcm(dpcmBuffer2);
                 characteristic0Ready = false;
+                handleCentering();
+                return decodedSignal;
 
             } else if (characteristicId.equals("e")){
                 for(int i = 0; i < 12; i++){
@@ -132,15 +140,14 @@ public class TraumschreiberService {
                     signalBitShift[i*2+1] = dataBytes[i] & 0xf;
                 }
                 Log.d(TAG, "RECEIVED FROM C0DE Characteritistic!" + Arrays.toString(signalBitShift));
-                data_ints = new int[] {10000};
-                return data_ints;
+                return new int[] {10000};
+
             } else {
-                data_ints = null;
-                return data_ints;
+                return null;
             }
 
         }
-        return data_ints;
+        return decodedSignal;
 
     }
 
@@ -156,11 +163,8 @@ public class TraumschreiberService {
 
         for (int i = 0; i < delta.length; i++) {
             decodedSignal[i] += delta[i] << signalBitShift[i];
-            //if (pkgCount < 1000) signalOffset[i] += 0.001 * decodedSignal[i]; //Average over first 1000 pkgs
-            //if (pkgCount == 1000) decodedSignal[i] -= signalOffset[i];
         }
 
-        //pkgCount++;
         return decodedSignal;
     }
 
@@ -193,5 +197,27 @@ public class TraumschreiberService {
         }
 
         return data;
+    }
+
+    public void handleCentering() {
+        if (pkgCount > 1000) {
+            return;
+
+        } else if (pkgCount == 1000) {
+            Log.d(TAG, "Signal is actually being centered..");
+            //Log.d(TAG, "Signal before: " + Arrays.toString(decodedSignal));
+            for (int i = 0; i < decodedSignal.length; i++) {
+                decodedSignal[i] = decodedSignal[i] - signalOffset[i];
+            }
+            Log.d(TAG, "Calculated Means: " + Arrays.toString(signalOffset));
+            //Log.d(TAG, "Signal after: " + Arrays.toString(decodedSignal));
+
+        } else {
+            for (int i = 0; i < decodedSignal.length; i++) {
+                signalOffset[i] += 0.001 * decodedSignal[i]; //Average over 1000 pkgs
+            }
+        }
+
+        pkgCount++;
     }
 }
